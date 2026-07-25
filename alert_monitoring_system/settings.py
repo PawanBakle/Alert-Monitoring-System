@@ -25,8 +25,13 @@ SECRET_KEY = 'django-insecure-dvds3s_=$p!6l(2&12dje)qc&g342!-!=8d^csv*h2nhzvzd&1
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '0.0.0.0', '*'] # Add '*' for dev testing
 
+# Add this to ensure CSRF doesn't block WS
+CSRF_TRUSTED_ORIGINS = [
+    'http://127.0.0.1:8000',
+    'http://localhost:8000',
+]
 
 # Application definition
 
@@ -40,6 +45,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'clients',
+    'channels'
 ]
 
 MIDDLEWARE = [
@@ -54,6 +60,20 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'alert_monitoring_system.urls'
 
+# CHANNEL_LAYERS = {
+#     "default": {
+#         "BACKEND": "channels_redis.core.RedisChannelLayer",
+#         "CONFIG": {
+#             "hosts": [("127.0.0.1", 6379)],
+#         },
+#     },
+# }
+# settings.py
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}   
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -69,9 +89,9 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'alert_monitoring_system.wsgi.application'
+# WSGI_APPLICATION = 'alert_monitoring_system.wsgi.application'
 
-
+ASGI_APPLICATION = "alert_monitoring_system.asgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
