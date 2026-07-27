@@ -24,9 +24,24 @@ class MetricsConsumer(AsyncWebsocketConsumer):
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
-    async def events_alarm(self, event):
+    async def events_normal(self, event):
         data = event.get('content', {})
         await self.send(text_data=json.dumps({
+            "type": "normal", 
             "message": "new metrics",
             "data": data
+        }))
+    async def events_alert(self, event):
+        data = event.get('content',{})
+        await self.send(text_data = json.dumps({
+            "type": "alert", 
+            "message":"high CPU alert for server",
+            "data":data
+        }))
+    async def events_offline(self, event):
+        data = event.get('content',{})
+        await self.send(text_data = json.dumps({
+            "type": "offline", 
+            "message":"OFFLINE server detected",
+            "data":data
         }))

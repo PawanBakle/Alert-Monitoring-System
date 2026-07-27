@@ -28,13 +28,13 @@
             padding: 20px;
             border-bottom: 1px solid #e5e7eb;
         }
-        .message {
-            margin-bottom: 10px;
-            padding: 8px 12px;
-            background: #f3f4f6;
-            border-radius: 6px;
-            max-width: 70%;
-        }
+.message {
+    padding: 10px;
+    margin: 5px 0;
+    border-radius: 5px;
+    border-left: 5px solid #ccc;
+    background-color: #f9f9f9;
+}
         .message.own {
             background: #3b82f6;
             color: white;
@@ -71,6 +71,23 @@
             color: #6b7280;
             font-size: 14px;
         }
+        /* Base message style */
+
+
+/* Normal metrics style */
+.normal-message {
+    border-left-color: #3b82f6; /* Blue */
+    background-color: #eff6ff;
+}
+
+/* Critical Alert style */
+.alert-message {
+    border-left-color: #ef4444; /* Red */
+    background-color: #fef2f2;
+    color: #991b1b;
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}   
     </style>
 </head>
 <body>
@@ -107,15 +124,28 @@
         dashboardSocket.onmessage = function(e) {
             const data = JSON.parse(e.data);
             const messageElement = document.createElement('div');
-            messageElement.classList.add('message');
             
-            // FIX: Access the correct key sent by your consumer
-            // Assuming consumer sends: { "data": {...metrics...} }
-            messageElement.textContent = JSON.stringify(data.data); 
+            // Base class for all messages
+            messageElement.classList.add('message');
+
+            // --- LOGIC: Check type and apply specific styling ---
+            if (data.type === 'alert') {
+                messageElement.classList.add('alert-message'); // Adds red/warning style
+                messageElement.innerHTML = `<strong>⚠️ ${data.message}</strong>`;
+            } 
+            else if (data.type === 'offline') {
+                messageElement.classList.add('alert-message'); // Adds red/warning style
+                messageElement.innerHTML = `${data.message}`;
+            } else {
+                // Default style for 'alarm' or normal metrics
+                messageElement.classList.add('normal-message');
+                messageElement.textContent = `${data.message}: ${JSON.stringify(data.data)}`;
+            }
+            // ----------------------------------------------------
 
             dhMessages.appendChild(messageElement);
             dhMessages.scrollTop = dhMessages.scrollHeight;
-        };   
+};     
         dashboardSocket.onclose = function(e) {
             status.textContent = 'Disconnected from dashboard server';
             status.style.backgroundColor = '#fee2e2';
