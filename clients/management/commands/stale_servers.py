@@ -6,58 +6,63 @@ from django.db.models import Q
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from clients.models import Metrics, Node 
+from datetime import timedelta
+from django.core.management.base import BaseCommand
+from django.utils import timezone
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from clients.models import Node, Metrics 
 
 class Command(BaseCommand):
-    help = 'Detects offline servers based on stale metrics'
+    help = 'Detects offline servers based on their latest stale metrics'
 
     def handle(self, *args, **options):
-        
         threshold_time = timezone.now() - timedelta(seconds=20)
+        # Online servers
+        active_nodes = Node.objects.exclude(status=Node.STATUS_OFFLINE)
         
-        # Filter stale metrics 
-        stale_metrics = Metrics.objects.filter(
-            time_stamp__lt=threshold_time
-        ).select_related('node_server')
-
         channel_layer = get_channel_layer()
-        
-        if stale_metrics.exists():
-            self.stdout.write(self.style.SUCCESS(f"Found {stale_metrics.count()} stale metrics."))
+        stale_count = 0
+
+        for node in active_nodes:
             
-            # avoid updating the same node multiple times if it has multiple stale metrics
-            processed_nodes = set()
+        
+            latest_metric = Metrics.objects.filter(
+                node_server=node
+            ).order_by('-time_stamp').first() # .first() gets the newest row or None
 
-            for metric in stale_metrics:
-                node = metric.node_server
-       
-                if node.id in processed_nodes:
-                    continue
-                
-              
-                if node.status != Node.STATUS_OFFLINE:
-                    node.status = Node.STATUS_OFFLINE
-                    node.save()
-                    self.stdout.write(f"Marked {node.host_name} as OFFLINE.")
-                    
-                    # data serialization
-                    data = {
-                        "server_host_name": node.host_name,
-                        "server_mac_address": node.mac_address,
-                        "server_status": node.status,
-                        "last_known_server": metric.server,
-                        "last_known_cpu": metric.cpu,
-                        "timestamp": metric.time_stamp.isoformat()
-                    }
+            if not latest_metric:
+                continue
 
-                    
-                    try:
-                        async_to_sync(channel_layer.group_send)("metrics", {
-                            "type": "events.offline",  # channels converts dots to underscores automatically
-                            "content": {"data": data}
-                        })
-                    except Exception as e:
-                        self.stderr.write(f"Failed to send WebSocket event: {e}")
+            # latest timestamp against the threshold
+            if latest_metric.time_stamp < threshold_time:
+                stale_count += 1
                 
-                processed_nodes.add(node.id)
+                # Update status
+                node.status = Node.STATUS_OFFLINE
+                node.save()
+                self.stdout.write(f"Marked {node.host_name} as OFFLINE.")
+                
+             
+                data = {
+                    "server_host_name": node.host_name,
+                    "server_mac_address": node.mac_address,
+                    "server_status": node.status,
+                    "last_known_server": latest_metric.server,
+                    "last_known_cpu": latest_metric.cpu,
+                    "timestamp": latest_metric.time_stamp.isoformat()
+                }
+
+                try:
+                    async_to_sync(channel_layer.group_send)("metrics", {
+                        "type": "events.offline", 
+                        "content": {"data": data}
+                    })
+                except Exception as e:
+                    self.stderr.write(f"Failed to send WebSocket event: {e}")
+
+
+        if stale_count > 0:
+            self.stdout.write(self.style.SUCCESS(f"Processed {stale_count} stale servers."))
         else:
-            self.stdout.write("No stale metrics found. All servers appear online.")   
+            self.stdout.write("No stale servers detected. All nodes are reporting normally.")
