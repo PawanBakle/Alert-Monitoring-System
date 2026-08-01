@@ -8,42 +8,71 @@ class NodeRegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only = True, validators = [validate_password])
     class Meta:
         model = Node
-        fields = ['host_name','mac_address','os_version','status','password']
+        fields = ['node_name','mac_address','os_version','status','password']
 
     def create(self, attrs):
         # status = attrs.get('status')
         # status = STATUS_ONLINE
         return Node.objects.create_user(**attrs)
 
+
+
 class NodeLoginSerializer(serializers.Serializer):
-    host_name = serializers.CharField(max_length = 12)
+    node_name = serializers.CharField(max_length = 12)
     password = serializers.CharField(write_only = True)
     def validate(self, attrs):
-        host_name = attrs.get('host_name')
+        node_name = attrs.get('node_name')
         password = attrs.get('password')
-        if host_name and password:
-            auth_user  = authenticate(username = host_name, password = password)
+        if node_name and password:
+            auth_user  = authenticate(username = node_name, password = password)
             if auth_user is None:
-                raise serializers.ValidationError("Invalid hostname or password")
+                raise serializers.ValidationError("Invalid node/server name or password")
             if not auth_user.is_active:
                 raise serializers.ValidationError("This user is disabled")
             attrs['user'] = auth_user
         else:
             raise serializers.ValidationError("Must include both hostname and password")
         return attrs
+
+""" 
+{'server_id': 4, 'seq_id': 2, 'time_stamp': '2026-08-01T08:51:31.034287+00:00', 
+'metrics': {'cpu': 6, 'memory': 70, 'disk': 47}}
+""" 
 class MetricsSerializer(serializers.ModelSerializer):
     cpu = serializers.IntegerField(min_value = 0, max_value = 100)
     node_server = serializers.PrimaryKeyRelatedField(queryset = Node.objects.all())
 
     class Meta:
         model = Metrics
-        fields = ['id','node_server','server','cpu','time_stamp']
+        # fields = ['id','node_server (node-id)','server','cpu','time_stamp']
+        fields = '__all__'
+        def validate(self, attrs):
+            node_server = attrs.get('node_server','')
+            node_server.status = 'ONLINE'
 
-        # def validate(self, attrs):
-        #     node_server = attrs.get('node_server','')
+
+    def to_internal_value(self,data):
+        metrics = data.get('metrics','')
+
+        # inner data
+        node_server = data.get('node_server')
+        seq_id = data.get('seq_id')
         
+        cpu = metrics.get('cpu',None)
+        memory = metrics.get('memory',None)
+
+        # combined = f"{outer_val}-{inner_val_1}" if outer_val and inner_val_1 else None
+        
+        flat_data = {
+            "seq_id":seq_id,
+            "node_server":node_server,
+            "cpu":cpu,
+            "memory":memory
+        }
+
+        return super().to_internal_value(flat_data)
     def create(self,attrs):
-        
+        # print(f"attributes pre serialization {attrs}")
         time_stamp = attrs.get('time_stamp','')
         time_stamp = timezone.now()
         attrs['time_stamp'] = time_stamp
