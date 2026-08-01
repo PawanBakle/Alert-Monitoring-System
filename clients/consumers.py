@@ -27,7 +27,12 @@ class MetricsConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
-
+    async def dispatch(self, message):
+        
+        try:
+            await super().dispatch(message)
+        except AttributeError as e:
+            print(f"Routing failed for type {message.get('type')}: {e}")
     async def receive(self, text_data = None,bytes_data = None):
         print(f'received text from Client {text_data}')
         json_data = json.loads(text_data)
@@ -48,7 +53,7 @@ class MetricsConsumer(AsyncWebsocketConsumer):
         },cls=DjangoJSONEncoder))
     async def events_normal(self, event):
         data = event.get('content', {})
-        print(f'sent from consumer {data}')
+        print(f'Normal event sent from consumer {data}')
         await self.send(text_data=json.dumps({
             "type": "normal", 
             "message": "new metrics",
@@ -64,12 +69,12 @@ class MetricsConsumer(AsyncWebsocketConsumer):
         }))
     async def events_offline(self, event):
         data = event.get('content',{})
-        print(f'sent from consumer {data}')
         await self.send(text_data = json.dumps({
             "type": "offline", 
             "message":"OFFLINE server detected",
             "data":data
         }))
+
 
     # @database_sync_to_async
     # def fetch_missed_alert(self, last_id):
@@ -103,6 +108,6 @@ class MetricsConsumer(AsyncWebsocketConsumer):
         return list(
             Metrics.objects.filter(id__in=latest_ids)
             .order_by('seq_id')
-            .values('seq_id', 'node_server_id', 'server', 'cpu', 'time_stamp')
+            .values('seq_id', 'node_server_id', 'cpu', 'time_stamp')
         )
 
