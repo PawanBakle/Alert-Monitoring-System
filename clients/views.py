@@ -14,6 +14,7 @@ from rest_framework.permissions import IsAuthenticated,AllowAny
 from rest_framework.views import APIView
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from .models import Node
 # Create your views here.
 
 
@@ -30,7 +31,7 @@ class NodeRegister(APIView):
         if serializer.is_valid():
             node = serializer.save()
             return Response(
-                    {"message": f"Node {node.host_name} registered successfully."}, 
+                    {"message": f"Node {node.node_name} registered successfully."}, 
                     status=status.HTTP_201_CREATED
                 )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -48,7 +49,7 @@ class NodeLogin(APIView):
         return Response({
             "token": token.key,
             "user_id": user.id,
-            "host_name": user.host_name,
+            "node_name": user.node_name,
             "id":user.id
         }, status=status.HTTP_200_OK)
 
@@ -64,47 +65,59 @@ class Metrics(APIView):
         return False
     
     def post(self,request):
-        # first serialize the request
-        # server sends metrics. 
-        # it gets serialized and validated
-        # it is sent to web socket
-        # server gets the response that the metrics has been saved
-        # but here are we saving the metrics?? everytime it's been sent?? 
-        # or checking if metrics is already of particular host is already there if just update relevant data? 
-        print(f'Data - {request.data}, sent by {request.user} and server {request.data}') # dict but has not be validated
-        node_server = request.data.get('node_server','')
-        print(node_server)
+        # print(f'Data -before serialization {request.data}, sent by {request.user}') # dict but has not be validated
+        server_status = Node.objects.get(node_name = request.user)
+
+        node_id = request.data.get('node_server','')
+        server_status.status = 'Online'
+        server_status.save()
+        print(f'server {server_status} and its status {server_status.status}')
+        # print(f'server Id sent {node_id}')
         serializer = MetricsSerializer(data = request.data)
+        # print(f'Just called serializer on this {serializer.initial_data}')
         if serializer.is_valid():
             serializer.save() # creates a row in metrics Table
             validate = self.check_high_metric(serializer.validated_data)
-            print(f'serialized data - {serializer.validated_data}')
+            # print(f'serialized data - {serializer.validated_data}')
+            node_name = serializer.validated_data['node_server'].node_name
+            node_status = serializer.validated_data['node_server'].status
+            
+            # node_status = serializer.validated_data['node_server']
+            # node_status.status = 'ONLINE'
+            # node_status.save()
+            # serializer.validated_data['node_server'] = node_status
             saved_data = serializer.data
+            # print(f"saved data post serialization {saved_data}")
+
             data = {
+                "seq_id":saved_data["seq_id"],
                 "server_mac_address":serializer.validated_data['node_server'].mac_address,
-                "server_status":serializer.validated_data['node_server'].status,
+                "server_name":node_name,
+                "server_status":node_status,
                 "server_os":serializer.validated_data['node_server'].os_version,
-                "server":serializer.validated_data['server'],
-                "cpu":serializer.validated_data['cpu'],
+                # "server":saved_data['server'],
+                "cpu":saved_data['cpu'],
                 "time": saved_data['time_stamp'],
             }
-            print(f'data payload{data}')
+            print(f'data payload to Redis -> {data}')
             layer = get_channel_layer()
             if validate:
         
                 async_to_sync(layer.group_send)('metrics',{
                     'type':'events.alert',
                     # 'content':{"data":serializer.validated_data}
-                    'content':{"data":data}
+                    'content':data
+                    # 'content':{"data":data}
                 })
-                print(serializer.validated_data)
+                # print(serializer.validated_data)
                 return Response({"status": "metrics received"}, status=status.HTTP_201_CREATED)
                 # print(type(serializer.validated_data))
             else: 
                 
                 async_to_sync(layer.group_send)('metrics', {
                 'type': 'events.normal',
-                'content': {"data":data} # vs serializer.data (need to figure what i pass to the client)
+                'content': data # vs serializer.data (need to figure what i pass to the client)
+                # 'content': {"data":data} # vs serializer.data (need to figure what i pass to the client)
                 })
                 
                 return Response({"status": "metrics received"}, status=status.HTTP_201_CREATED)
