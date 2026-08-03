@@ -65,16 +65,15 @@ CHANNEL_LAYERS = {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [("127.0.0.1", 6379)],
+            "capacity": 1500,  # Default 100
+            "expiry": 60,      # Default 60
+           
         },
     },
 }
 
 # settings.py
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
-    }
-}   
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -133,7 +132,7 @@ USE_TZ = True
 
 USE_I18N = True
 
-
+# WS4REDIS_PREFIX = 'ws'
 
 
 # Static files (CSS, JavaScript, Images)
