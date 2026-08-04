@@ -7,7 +7,9 @@ from channels.generic.websocket import (
 from channels.db import database_sync_to_async
 # from .models import Metrics
 from django.core.serializers.json import DjangoJSONEncoder
-import json
+from channels.exceptions import StopConsumer
+import redis
+import asyncio   
 '''
 - here first i write class Metric Consumer for all the clients connected to FD 
 - first clients connect in def connect
@@ -26,25 +28,41 @@ class MetricsConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        # async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(
+            "metrics",
+            self.channel_name
+        )
     async def dispatch(self, message):
-        
-        try:
-            await super().dispatch(message)
-        except AttributeError as e:
-            print(f"Routing failed for type {message.get('type')}: {e}")
-    async def receive(self, text_data = None,bytes_data = None):
-        print(f'received text from Client {text_data}')
-        json_data = json.loads(text_data)
-        last_id = json_data['last_seq_id']
+        #overriding dispatch to gracefully catch Redis drops instead of crashing daphne or uvicorn
+            try:
+                await super().dispatch(message)
+            except (redis.exceptions.TimeoutError, asyncio.TimeoutError):
+                # Log the transient drop internally without killing the socket worker
+                print("Warning: Transient Redis read timeout caught in consumer dispatch.")
+            except (StopConsumer, ConnectionResetError, BrokenPipeError):
+                # Client disconnected unexpectedly
+                print("Info: Client disconnected abruptly.")
+                # Do NOT raise e; let the consumer stop naturally
+            except Exception as e:
+                # Only log and raise if it's a genuine unexpected error
+                if str(e):
+                    print(f"Consumer dispatch error: {e}")
+                else:
+                    print(f"Consumer dispatch error: {type(e).__name__} (Empty message)")
+                raise e
 
-        print(f'id sent from Client {last_id}')
-        # received data from client uppon reconnection
+    async def receive(self, text_data = None,bytes_data = None):
+        # print(f'received text from Client {text_data}')
+        json_data = json.loads(text_data) 
+        print(f'Received JSON from CLIENT {json_data}')
+        # {'type': 'sync', 'last_seen': {'12:31:13:197': 16, '12:31:13:195': 17, '5d:7d:81:e2:55:dc': 12}}
         # need to fire ORM to find and send back data from last id - latest id-1
         # kinda of like a loop through from last seq-id
-        lost_messages = await self.fetch_missed_alert(last_id)
+        payload = json_data['last_seen']
+        lost_messages = await self.fetch_missed_alert(json_data["last_seen"])
         # lost_messages = json.dumps(lost_messages)
-        print(f'messages that were lost {len(lost_messages)}')
+        # print(f'messages that were lost {len(lost_messages)}')
         # lost_messages['time_stamp'] = datetime.now().isoformat(),
         await self.send(text_data = json.dumps({
             "type":"recovery_data",
@@ -75,36 +93,26 @@ class MetricsConsumer(AsyncWebsocketConsumer):
             "data":data
         }))
 
-
-    # @database_sync_to_async
-    # def fetch_missed_alert(self, last_id):
-    #     from .models import Metrics
-    #     return list(
-    #         Metrics.objects.filter(id__gt=last_id)
-    #         .order_by('id')
-    #         .values('id', 'seq_id', 'server', 'cpu','time_stamp') # Explicitly name fields you need
-    #     )
-    #     # return Metrics.objects.filter(id__gte = last_id).order_by('id')
-    #     # return missed_data
-
     @database_sync_to_async
     def fetch_missed_alert(self, last_seq_id, node_server_id=None):
         from .models import Metrics 
         from django.db.models import Max
 
-        # 1. Base filter for sequences greater than last_seq_id
-        base_query = Metrics.objects.filter(seq_id__gt=last_seq_id)
-        if node_server_id:
-            base_query = base_query.filter(node_server_id=node_server_id)
+# to get and remove de duplicates
+        # base_query = Metrics.objects.filter(seq_id__gt=last_seq_id)
+        for each_key in payload.keys():
+            # get the value and perform the same query
+            # base_query = Metrics.objects.filter(seq_id__gt=last_seq_id)
+            if node_server_id:
+                base_query = base_query.filter(node_server_id=node_server_id)
 
-        # 2. Find the absolute latest primary key ID for each unique seq_id
-        latest_ids = (
-            base_query.values('seq_id')
-            .annotate(latest_id=Max('id'))
-            .values_list('latest_id', flat=True)
-        )
+            latest_ids = (
+                base_query.values('seq_id')
+                .annotate(latest_id=Max('id'))
+                .values_list('latest_id', flat=True)
+            )
+        print(f"Lost data received and sent {list((Metrics.objects.filter(id__in=latest_ids).order_by('seq_id').values('seq_id', 'node_server_id', 'cpu', 'time_stamp')))}")
 
-        # 3. Pull the full records matching only those unique primary keys
         return list(
             Metrics.objects.filter(id__in=latest_ids)
             .order_by('seq_id')
