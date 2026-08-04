@@ -14,7 +14,7 @@ from rest_framework.permissions import IsAuthenticated,AllowAny
 from rest_framework.views import APIView
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from .models import Node
+from .models import Node,Metrics
 # Create your views here.
 
 
@@ -46,15 +46,22 @@ class NodeLogin(APIView):
         # where does token come here? likely here 
         user = serializer.validated_data['user']
         token, created = Token.objects.get_or_create(user = user)
+        last_seq_id = Metrics.objects.filter(node_server = user).order_by('-time_stamp').first()
+        if last_seq_id == None:
+            last_sent_id = 0
+        else:
+            last_sent_id = last_seq_id.seq_id
+        print(f'last data saved {last_seq_id}')
         return Response({
             "token": token.key,
             "user_id": user.id,
             "node_name": user.node_name,
-            "id":user.id
+            "id":user.id,
+            "last_sent_seq_id":last_sent_id
         }, status=status.HTTP_200_OK)
 
 
-class Metrics(APIView):
+class MetricsData(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -91,8 +98,8 @@ class Metrics(APIView):
 
             data = {
                 "seq_id":saved_data["seq_id"],
-                "server_mac_address":serializer.validated_data['node_server'].mac_address,
                 "server_name":node_name,
+                "server_mac_address":serializer.validated_data['node_server'].mac_address,
                 "server_status":node_status,
                 "server_os":serializer.validated_data['node_server'].os_version,
                 # "server":saved_data['server'],

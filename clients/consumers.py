@@ -10,15 +10,8 @@ from django.core.serializers.json import DjangoJSONEncoder
 from channels.exceptions import StopConsumer
 import redis
 import asyncio   
-'''
-- here first i write class Metric Consumer for all the clients connected to FD 
-- first clients connect in def connect
-- then consumer receive the data from clients via def receive (although client here is dashboad)
-and not sending any data just receiving
-- yeah another listener is for group channel layer so it listens for any updates from the channel layer
-to push it to the client with def send
-- there is no ORM as of now. 
-'''
+from django.db.models import Q,Max
+
 class MetricsConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         # here client's instances connect to consumer and stay in memory
@@ -94,28 +87,29 @@ class MetricsConsumer(AsyncWebsocketConsumer):
         }))
 
     @database_sync_to_async
-    def fetch_missed_alert(self, last_seq_id, node_server_id=None):
-        from .models import Metrics 
-        from django.db.models import Max
+    def fetch_missed_alert(self, payload, node_server_id=None):
+        from .models import Metrics, Node
+        mac_addresses = list(payload.keys())
+        nodes = Node.objects.filter(mac_address__in=mac_addresses).values('id', 'mac_address')
+        node_map = {str(n['mac_address']): n['id'] for n in nodes}
+        
+        results = {}
 
-# to get and remove de duplicates
-        # base_query = Metrics.objects.filter(seq_id__gt=last_seq_id)
-        for each_key in payload.keys():
-            # get the value and perform the same query
-            # base_query = Metrics.objects.filter(seq_id__gt=last_seq_id)
-            if node_server_id:
-                base_query = base_query.filter(node_server_id=node_server_id)
-
-            latest_ids = (
-                base_query.values('seq_id')
-                .annotate(latest_id=Max('id'))
-                .values_list('latest_id', flat=True)
+        for mac, last_seq_id in payload.items():
+            if mac not in node_map:
+                continue
+                
+            node_id = node_map[mac]
+            
+            # filter greater than the last known IDss
+            missed_data = list(
+                Metrics.objects.filter(
+                    node_server_id=node_id, 
+                    seq_id__gt=last_seq_id
+                ).order_by('seq_id').values('seq_id', 'cpu', 'time_stamp')
             )
-        print(f"Lost data received and sent {list((Metrics.objects.filter(id__in=latest_ids).order_by('seq_id').values('seq_id', 'node_server_id', 'cpu', 'time_stamp')))}")
-
-        return list(
-            Metrics.objects.filter(id__in=latest_ids)
-            .order_by('seq_id')
-            .values('seq_id', 'node_server_id', 'cpu', 'time_stamp')
-        )
-
+            
+            results[mac] = missed_data
+# {'mac_address': [list_of_metrics], mac_address2 : [lom]..}
+        print(f'data sent back for missed ids {results}')
+        return results
