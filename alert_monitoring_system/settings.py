@@ -60,19 +60,34 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'alert_monitoring_system.urls'
 
+# CHANNEL_LAYERS = {
+#     "default": {
+#         "BACKEND": "channels_redis.core.RedisChannelLayer",
+#         "CONFIG": {
+#             "hosts": [("127.0.0.1", 6379)],
+#             "capacity": 1500,  
+#             "expiry": 60,      
+           
+#         },
+#     },
+# }
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("127.0.0.1", 6379)],
-            "capacity": 1500,  # Default 100
-            "expiry": 60,      # Default 60
-           
+            "hosts": [
+                {
+                    "address": "redis://127.0.0.1:6379/0",
+                    "socket_timeout": None,  
+                }
+            ],
+            "capacity": 1500,
+            "expiry": 10,
         },
     },
 }
 
-# settings.py
+
 
 TEMPLATES = [
     {
