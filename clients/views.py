@@ -3,6 +3,7 @@ from django.shortcuts import render
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import status
 from .serializers import NodeRegisterSerializer,NodeLoginSerializer,MetricsSerializer
 from rest_framework.authentication import TokenAuthentication
@@ -45,15 +46,17 @@ class NodeLogin(APIView):
         # basically first authenticate with username and password
         # where does token come here? likely here 
         user = serializer.validated_data['user']
-        token, created = Token.objects.get_or_create(user = user)
-        last_seq_id = Metrics.objects.filter(node_server = user).order_by('-time_stamp').first()
+        refresh = RefreshToken.for_user(user)
+        # last_seq_id = Metrics.objects.filter(node_server = user).order_by('-time_stamp').first()
+        last_seq_id = Metrics.objects.filter(node_server = user).order_by('-seq_id').first() # since new seq id is sent every time
         if last_seq_id == None:
             last_sent_id = 0
         else:
             last_sent_id = last_seq_id.seq_id
         print(f'last data saved {last_seq_id}')
         return Response({
-            "token": token.key,
+            "access": str(refresh.access_token),
+            "refresh" = str(refresh),
             "user_id": user.id,
             "node_name": user.node_name,
             "id":user.id,
@@ -73,12 +76,9 @@ class MetricsData(APIView):
     
     def post(self,request):
         # print(f'Data -before serialization {request.data}, sent by {request.user}') # dict but has not be validated
-        server_status = Node.objects.get(node_name = request.user)
-
-        node_id = request.data.get('node_server','')
-        server_status.status = 'Online'
-        server_status.save()
-        print(f'server {server_status} and its status {server_status.status}')
+        request.user.status = 'Online'
+        request.user.save()
+        print(f'server {request.user} and its status {request.user.status}')
         # print(f'server Id sent {node_id}')
         serializer = MetricsSerializer(data = request.data)
         # print(f'Just called serializer on this {serializer.initial_data}')
