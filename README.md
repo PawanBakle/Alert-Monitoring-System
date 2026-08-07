@@ -1,0 +1,1 @@
+A backend system built with Django Channels and Redis that ingests server metrics from multiple agents via REST, evaluates CPU thresholds, and broadcasts live alerts to connected dashboards over WebSockets. Supports multi-client fan-out, offline server detection, and missed-alert replay on reconnect. Built with Django, DRF, and vanilla JS.
