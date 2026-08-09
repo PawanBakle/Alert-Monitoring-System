@@ -69,13 +69,31 @@ class MetricsSerializer(serializers.ModelSerializer):
             "cpu":cpu,
             "memory":memory
         }
+    
 
         return super().to_internal_value(flat_data)
+
+    def evaluate_severity(self, cpu):
+        if cpu > 90:
+            return ['CRITICAL',f"CPU {cpu}% > threshold 90%"]
+            
+        elif cpu > 70:
+            return ['WARNING',f"CPU {cpu}% > threshold 70%"]
+            
+        else:
+            return ['NORMAL',None]
+
+
     def create(self,attrs):
         # print(f"attributes pre serialization {attrs}")
-        time_stamp = attrs.get('time_stamp','')
-        time_stamp = timezone.now()
-        attrs['time_stamp'] = time_stamp
+        cpu = attrs.get('cpu',None)
+        cpu_severity = self.evaluate_severity(cpu)
+        attrs['severity'] = cpu_severity[0]
+        reason = cpu_severity[1]
+        attrs['alert_reason'] = reason if reason else None
+        if 'time_stamp' not in attrs or attrs['time_stamp'] is None:
+            attrs['time_stamp'] = timezone.now()
+        
         return Metrics.objects.create(**attrs)
 
 

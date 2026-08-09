@@ -1,13 +1,11 @@
 from django.http import HttpResponse,JsonResponse
+from rest_framework import status
 from django.shortcuts import render
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework import status
 from .serializers import NodeRegisterSerializer,NodeLoginSerializer,MetricsSerializer
-from rest_framework.authentication import TokenAuthentication
-from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import PermissionDenied
@@ -67,67 +65,39 @@ class NodeLogin(APIView):
 class MetricsData(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
-
-    def check_high_metric(self,data): # type- dict
-        cpu_data = data.get('cpu',None)
-        if cpu_data and cpu_data > 70:
-            return True
-        return False
     
     def post(self,request):
         # print(f'Data -before serialization {request.data}, sent by {request.user}') # dict but has not be validated
-        request.user.status = 'Online'
+        request.user.status = 'ONLINE'
         request.user.save()
         print(f'server {request.user} and its status {request.user.status}')
-        # print(f'server Id sent {node_id}')
         serializer = MetricsSerializer(data = request.data)
-        # print(f'Just called serializer on this {serializer.initial_data}')
         if serializer.is_valid():
-            serializer.save() # creates a row in metrics Table
-            validate = self.check_high_metric(serializer.validated_data)
-            # print(f'serialized data - {serializer.validated_data}')
-            node_name = serializer.validated_data['node_server'].node_name
-            node_status = serializer.validated_data['node_server'].status
-            
-            # node_status = serializer.validated_data['node_server']
-            # node_status.status = 'ONLINE'
-            # node_status.save()
-            # serializer.validated_data['node_server'] = node_status
+            instance = serializer.save() # creates a row in metrics Table
+            node = instance.node_server
             saved_data = serializer.data
-            # print(f"saved data post serialization {saved_data}")
-
             data = {
-                "seq_id":saved_data["seq_id"],
-                "server_name":node_name,
-                "server_mac_address":serializer.validated_data['node_server'].mac_address,
-                "server_status":node_status,
-                "server_os":serializer.validated_data['node_server'].os_version,
-                # "server":saved_data['server'],
-                "cpu":saved_data['cpu'],
-                "time": saved_data['time_stamp'],
+                "seq_id":instance.seq_id,
+                "server_name":node.node_name,
+                "server_mac_address":node.mac_address,
+                "server_status":request.user.status,
+                "server_os":node.os_version,
+                "severity":instance.severity,
+                "cpu":instance.cpu,
+                "time": instance.time_stamp.isoformat(),
             }
             print(f'data payload to Redis -> {data}')
             layer = get_channel_layer()
-            if validate:
-        
-                async_to_sync(layer.group_send)('metrics',{
-                    'type':'events.alert',
-                    # 'content':{"data":serializer.validated_data}
+            if instance.severity == 'NORMAL':
+                event_type = 'events.normal'
+            else:
+                event_type = 'events.alert'
+            
+            async_to_sync(layer.group_send)('metrics',{
+                    'type':event_type,
                     'content':data
-                    # 'content':{"data":data}
                 })
-                # print(serializer.validated_data)
-                return Response({"status": "metrics received"}, status=status.HTTP_201_CREATED)
-                # print(type(serializer.validated_data))
-            else: 
-                
-                async_to_sync(layer.group_send)('metrics', {
-                'type': 'events.normal',
-                'content': data # vs serializer.data (need to figure what i pass to the client)
-                # 'content': {"data":data} # vs serializer.data (need to figure what i pass to the client)
-                })
-                
-                return Response({"status": "metrics received"}, status=status.HTTP_201_CREATED)
+            return Response({"status": "metrics received"}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     '''
