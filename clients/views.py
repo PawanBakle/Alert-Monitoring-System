@@ -54,7 +54,7 @@ class NodeLogin(APIView):
         print(f'last data saved {last_seq_id}')
         return Response({
             "access": str(refresh.access_token),
-            "refresh" = str(refresh),
+            "refresh" : str(refresh),
             "user_id": user.id,
             "node_name": user.node_name,
             "id":user.id,
@@ -63,7 +63,7 @@ class NodeLogin(APIView):
 
 
 class MetricsData(APIView):
-    authentication_classes = [TokenAuthentication]
+    # authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
     
     def post(self,request):
@@ -73,7 +73,14 @@ class MetricsData(APIView):
         print(f'server {request.user} and its status {request.user.status}')
         serializer = MetricsSerializer(data = request.data)
         if serializer.is_valid():
-            instance = serializer.save() # creates a row in metrics Table
+            try:
+                instance = serializer.save() # creates a row in metrics Table
+            except IntegrityError:
+                    # Idempotency catch: Duplicate seq_id for this node
+                return Response(
+                        {"status": "duplicate metric ignored", "seq_id": mutable_data.get('seq_id')}, 
+                        status=status.HTTP_409_CONFLICT
+                    )
             node = instance.node_server
             saved_data = serializer.data
             data = {

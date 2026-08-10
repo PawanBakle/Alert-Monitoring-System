@@ -47,6 +47,7 @@ class AgentSimulator:
         self.os_version = None
         self.session = None
         
+        
 
         if self.seq_id == None:
             self.seq_id = 1
@@ -59,7 +60,7 @@ class AgentSimulator:
         self.memory = None
         self.disk = None
         self.time_stamp = None
-
+        self.SPIKE_PROBABILITY = 0.20
 
         # urls & constants
         self.BASE_URL = 'http://127.0.0.1:8000'
@@ -146,32 +147,34 @@ class AgentSimulator:
             self.seq_id = response.json().get('last_sent_seq_id')
             
             print(response.text)
-            if self.token:
+            if self.access:
                 self.logger.info("Login successful.")
-                return self.token
+                return self.access
             self.logger.error("No token received in login response.")
             return None
         
-        except (HTTPError, ConnectionError, Timeout) as e:
+        except HTTPError as e:
             if e.response.status_code == 401:
                 
-            self.logger.error(f"Login failed: {e}")
-            return None
-
+                self.logger.error(f"Login failed: {e}")
+                return None
+        except (ConnectionError, Timeout) as e:
+            self.logger.warning(f"Network error sending metrics: {e}. Retrying next cycle...")
+            return False
     def handle_expired_login(self):
         payload = {'refresh':self.refresh}
         try:
             response = self.session.post(
                 f'{self.REFRESH_TOKEN}', 
                 json=payload, 
-                timeout=self.TIMEOUT_SECONDS'
+                timeout=self.TIMEOUT_SECONDS
             )
             response.raise_for_status()
             self.access = response.json().get('access')
             self.refresh = response.json().get('refresh')
             self.logger.debug(f"Metrics sent successfully (Seq: {self.seq_id})")
             return True
-        except HttpError as e:
+        except HTTPError as e:
             if e.response.status_code == 401:
                 self.logger.error('Refresh token expired .. need re-login')
                 return False
@@ -184,61 +187,78 @@ class AgentSimulator:
 
     def generate_metrics(self):
        # seq-id cpu, memory, disk, time-stamp, state
-       self.cpu = random.randint(1, 10)
+       self.is_spike = random.random() < self.SPIKE_PROBABILITY
+    #    self.cpu = random.randint(1, 10)
        self.memory = random.randint(25,70)
        self.disk = random.randint(1,100)
+       if self.is_spike:
+        self.cpu = random.randint(85, 99)  # High CPU to trigger alerts
+        print("Simulating high CPU spike!")
+       else:
+        self.cpu = random.randint(5, 40)
+       
        return {
         "cpu":self.cpu, 
         "memory":self.memory,
-        "disk":self.disk
+        "disk":self.disk,
         }
 
     def send_metrics(self):
-        metrics = self.generate_metrics()
-        # metrics["server_id"] = self.server_id
-        self.seq_id += 1
-        # "time_stamp": datetime.now(timezone.utc).isoformat()
-        data = {
-            "node_server":self.server_id,
-            "seq_id":self.seq_id,"metrics":metrics
-            }
-        headers = {
-            "Authorization": f"Bearer {self.access}", 
-            "Content-Type": "application/json"
-                  }
-        try:
-            response = self.session.post(
-                f'{self.METRICS_URL}',
-                 json=data, 
-                 headers=headers, 
-                 timeout=self.TIMEOUT_SECONDS
-            
-            )
+            max_retries = 2
+            attempt = 0
 
-            print(f'last sent metric seq-id {self.seq_id}')
-            response.raise_for_status()
-            self.logger.debug(f"Metrics sent successfully (Status: {response.status_code})")
-            return True
-        except HTTPError as e:
-            if e.response.status_code == 401:
-                self.logger.error("Authentication failed. Token may be expired.")
-                if self.handle_expired_login():
-                    return self.send_metrics() # Stop loop, need re-login
-                else:
+            while attempt < max_retries:
+                attempt += 1
+                metrics = self.generate_metrics()
+                self.seq_id += 1
+                
+                data = {
+                    "node_server": self.server_id,
+                    "seq_id": self.seq_id,
+                    "metrics": metrics
+                }
+                headers = {
+                    "Authorization": f"Bearer {self.access}", 
+                    "Content-Type": "application/json"
+                }
+                
+                try:
+                    response = self.session.post(
+                        f'{self.METRICS_URL}',
+                        json=data, 
+                        headers=headers, 
+                        timeout=self.TIMEOUT_SECONDS
+                    )
+
+                    print(f'last sent metric seq-id {self.seq_id}')
+                    response.raise_for_status()
+                    self.logger.debug(f"Metrics sent successfully (Status: {response.status_code})")
+                    return True
+                    
+                except HTTPError as e:
+                    if e.response.status_code == 401:
+                        self.logger.error("Authentication failed. Token may be expired.")
+                        if attempt < max_retries and self.handle_expired_login():
+                            self.logger.info("Retrying metric transmission with fresh token...")
+                            continue  # loop back to try posting metrics again safely
+                        else:
+                            self.logger.error("Token refresh failed or maximum retry limit reached.")
+                            return False
+
+                    self.logger.error(f"Metrics rejected (HTTP {e.response.status_code}): {e.response.text}")
+                    return True 
+                except Exception as e:
+                    self.logger.error(f"Network or connection error: {e}")
                     return False
-
-            self.logger.error(f"Metrics rejected (HTTP {e.response.status_code}): {e.response.text}")
-            return True # Continue loop, might be temporary data issue
-        except (ConnectionError, Timeout) as e:
-            self.logger.warning(f"Network error sending metrics: {e}. Retrying next cycle...")
-            return True
+            
+            return False
 
     def main(self):
         self.session = self.get_retry_session()
         if not self.register():
             self.logger.warning("Registration failed or node already exists. Attempting login anyway...")
-        self.token = self.login_node()
-        if not self.token:
+        self.access = self.login_node()
+        if not self.access:
             self.logger.critical("Exiting due to login failure.")
             return
 

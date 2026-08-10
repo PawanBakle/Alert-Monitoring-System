@@ -46,9 +46,6 @@ class MetricsSerializer(serializers.ModelSerializer):
         model = Metrics
         # fields = ['id','node_server (node-id)','server','cpu','time_stamp']
         fields = '__all__'
-        def validate(self, attrs):
-            node_server = attrs.get('node_server','')
-            node_server.status = 'ONLINE'
 
 
     def to_internal_value(self,data):
@@ -60,6 +57,7 @@ class MetricsSerializer(serializers.ModelSerializer):
         
         cpu = metrics.get('cpu',None)
         memory = metrics.get('memory',None)
+        disk = metrics.get('disk',None)
 
         # combined = f"{outer_val}-{inner_val_1}" if outer_val and inner_val_1 else None
         
@@ -67,7 +65,8 @@ class MetricsSerializer(serializers.ModelSerializer):
             "seq_id":seq_id,
             "node_server":node_server,
             "cpu":cpu,
-            "memory":memory
+            "memory":memory,
+            "disk":disk
         }
     
 
