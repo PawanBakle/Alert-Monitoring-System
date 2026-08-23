@@ -13,55 +13,84 @@ import asyncio
 from django.db.models import Q,Max
 
 class MetricsConsumer(AsyncWebsocketConsumer):
-    async def connect(self):
-        # here client's instances connect to consumer and stay in memory
+async def connect(self):
+        query_string = self.scope['query_string'].decode()
+        params = dict(param.split('=') for param in query_string.split('&') if '=' in param)
+        token_str = params.get('token')
+        if not token_str:
+            logger.warning("WebSocket connection rejected: Missing auth token.")
+            await self.close(code=4001)  # Custom close code for unauthorized
+            return
+        user = await self.get_user_from_token(token_str)
+        if not user:
+            logger.warning("WebSocket connection rejected: Invalid or expired token.")
+            await self.close(code=4003)
+            return
+        self.scope['user'] = user
+        
         self.group_name = 'metrics'
-        # add to the group when they join
-        await self.channel_layer.group_add(self.group_name,self.channel_name) # are they both different?
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
-
+        logger.info(f"WebSocket connected for user: {user.node_name if hasattr(user, 'node_name') else user}")
+    @database_sync_to_async
+    def get_user_from_token(self, token_str):
+        try:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            
+            # Decode and verify the JWT access token
+            access_token = AccessToken(token_str)
+            user_id = access_token['user_id']
+            return User.objects.get(id=user_id)
+        except (InvalidToken, TokenError, Exception) as e:
+            logger.error(f"Token validation error during WS connection: {e}")
+            return None
     async def disconnect(self, close_code):
         # async def disconnect(self, close_code):
         await self.channel_layer.group_discard(
             "metrics",
             self.channel_name
         )
+
     async def dispatch(self, message):
         #overriding dispatch to gracefully catch Redis drops instead of crashing daphne or uvicorn
+        try:
+            await super().dispatch(message)
+        except (ConnectionResetError, BrokenPipeError):
+            # Client network socket dropped unexpectedly
+            print("Info: Client socket connection reset or broken pipe.")
+        except StopConsumer:
+            # let consumer handle it
+            raise
+        except Exception as e:
+            # unexpected runtime exceptions
+            print(f"Consumer dispatch error: {type(e).__name__}: {e}")
+            raise
+    async def receive(self, text_data=None, bytes_data=None):
+        
             try:
-                await super().dispatch(message)
-            except (redis.exceptions.TimeoutError, asyncio.TimeoutError):
-                # Log the transient drop internally without killing the socket worker
-                print("Warning: Transient Redis read timeout caught in consumer dispatch.")
-            except (StopConsumer, ConnectionResetError, BrokenPipeError):
-                # Client disconnected unexpectedly
-                print("Info: Client disconnected abruptly.")
-                # Do NOT raise e; let the consumer stop naturally
-            except Exception as e:
-                # Only log and raise if it's a genuine unexpected error
-                if str(e):
-                    print(f"Consumer dispatch error: {e}")
-                else:
-                    print(f"Consumer dispatch error: {type(e).__name__} (Empty message)")
-                raise e
+                json_data = json.loads(text_data)
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.error(f"Malformed JSON received over WebSocket: {e}")
+                await self.send(text_data=json.dumps({
+                    "type": "error",
+                    "message": "Invalid JSON format payload."
+                }))
+                return
+            if 'last_seen' not in json_data:
+                await self.send(text_data=json.dumps({
+                    "type": "error",
+                    "message": "Missing 'last_seen' payload key."
+                }))
+                return
 
-    async def receive(self, text_data = None,bytes_data = None):
-        # print(f'received text from Client {text_data}')
-        json_data = json.loads(text_data) 
-        print(f'Received JSON from CLIENT {json_data}')
-        # {'type': 'sync', 'last_seen': {'12:31:13:197': 16, '12:31:13:195': 17, '5d:7d:81:e2:55:dc': 12}}
-        # need to fire ORM to find and send back data from last id - latest id-1
-        # kinda of like a loop through from last seq-id
-        payload = json_data['last_seen']
-        lost_messages = await self.fetch_missed_alert(json_data["last_seen"])
-        # lost_messages = json.dumps(lost_messages)
-        # print(f'messages that were lost {len(lost_messages)}')
-        # lost_messages['time_stamp'] = datetime.now().isoformat(),
-        await self.send(text_data = json.dumps({
-            "type":"recovery_data",
-            "messages":lost_messages
+            lost_messages = await self.fetch_missed_alert(json_data["last_seen"])
+            await self.send(text_data=json.dumps({
+                "type": "recovery_data",
+                "messages": lost_messages
+            }, cls=DjangoJSONEncoder))
 
-        },cls=DjangoJSONEncoder))
+    
     async def events_normal(self, event):
         data = event.get('content', {})
         print(f'Normal event sent from consumer {data}')
@@ -106,7 +135,7 @@ class MetricsConsumer(AsyncWebsocketConsumer):
                 Metrics.objects.filter(
                     node_server_id=node_id, 
                     seq_id__gt=last_seq_id
-                ).order_by('seq_id').values('seq_id', 'cpu', 'time_stamp')
+                ).order_by('seq_id').values('seq_id', 'cpu', 'time_stamp').exclude(severity='NORMAL')
             )
             
             results[mac] = missed_data

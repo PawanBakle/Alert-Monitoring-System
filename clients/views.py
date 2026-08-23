@@ -78,7 +78,7 @@ class MetricsData(APIView):
             except IntegrityError:
                     # Idempotency catch: Duplicate seq_id for this node
                 return Response(
-                        {"status": "duplicate metric ignored", "seq_id": mutable_data.get('seq_id')}, 
+                        {"status": "duplicate metric ignored", "seq_id": request.data.get('seq_id')}, 
                         status=status.HTTP_409_CONFLICT
                     )
             node = instance.node_server

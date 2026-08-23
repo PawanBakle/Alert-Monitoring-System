@@ -34,10 +34,12 @@ class AgentSimulator:
     
     
     def __init__(self, server_name, interval,*kwargs):
-        self.server_name = server_name
-        self.interval = interval
+        self.server_name = server_name or os.getenv("SERVER_NAME", "web_02")
+        # self.interval = interval
         self.server_id = None
-        self.password = 'K3epYour$erver$ecure!'
+        self.password = os.getenv("SERVER_PASSWORD")
+        if not self.password:
+            raise ValueError("CRITICAL: SERVER_PASSWORD environment variable is missing!")
         self.access = None
         self.refresh = None
         self.seq_id = None
@@ -46,13 +48,7 @@ class AgentSimulator:
         self.mac_address = None
         self.os_version = None
         self.session = None
-        
-        
-
-        if self.seq_id == None:
-            self.seq_id = 1
-        # login
-
+        self.seq_id = 0
         
         # metrics
         
@@ -63,15 +59,16 @@ class AgentSimulator:
         self.SPIKE_PROBABILITY = 0.20
 
         # urls & constants
-        self.BASE_URL = 'http://127.0.0.1:8000'
+        self.BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
         self.REGISTER_URL = f'{self.BASE_URL}/api/register/'
         self.LOGIN_URL = f'{self.BASE_URL}/api/login/'
         self.METRICS_URL = f'{self.BASE_URL}/api/metrics/'
         self.REFRESH_TOKEN = f'{self.BASE_URL}/api/token/refresh/'
         self.TIMEOUT_SECONDS = 5
         self.RETRY_TOTAL = 3
-        self.BACKOFF_FACTOR = 1  # Sleeps: 0s, 1s, 2s...
-        self.METRICS_INTERVAL = 5
+        self.BACKOFF_FACTOR = 1 
+        env_interval = os.getenv("METRICS_INTERVAL")
+        self.METRICS_INTERVAL = interval if interval is not None else (int(env_interval) if env_interval else 5)
 
 
     def get_retry_session(self):
