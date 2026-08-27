@@ -49,13 +49,13 @@ class MetricsSerializer(serializers.ModelSerializer):
 
 
     def to_internal_value(self,data):
-        metrics = data.get('metrics','')
+        metrics = data.get('metrics',None)
 
         # inner data
         node_server = data.get('node_server')
         seq_id = data.get('seq_id')
         
-        cpu = metrics.get('cpu',None)
+        cpu = metrics.get('cpu','')
         memory = metrics.get('memory',None)
         disk = metrics.get('disk',None)
 

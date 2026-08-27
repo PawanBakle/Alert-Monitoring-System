@@ -47,7 +47,7 @@ class Metrics(models.Model):
     cpu = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(100)])
     memory = models.IntegerField()
     disk = models.IntegerField()
-    time_stamp = models.DateTimeField(auto_now = True)
+    time_stamp = models.DateTimeField(auto_now_add=True)
     severity = models.CharField(max_length=20, choices=[
         ('NORMAL', 'Normal'),
         ('WARNING', 'Warning'),
@@ -55,5 +55,7 @@ class Metrics(models.Model):
     ], default='NORMAL')
     alert_reason = models.CharField(max_length = 255, null = True, blank = True)
 
-
+    class Meta:
+        unique_together = ('node_server','seq_id')
+        
     

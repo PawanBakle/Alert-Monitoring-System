@@ -13,25 +13,25 @@ import asyncio
 from django.db.models import Q,Max
 
 class MetricsConsumer(AsyncWebsocketConsumer):
-async def connect(self):
-        query_string = self.scope['query_string'].decode()
-        params = dict(param.split('=') for param in query_string.split('&') if '=' in param)
-        token_str = params.get('token')
-        if not token_str:
-            logger.warning("WebSocket connection rejected: Missing auth token.")
-            await self.close(code=4001)  # Custom close code for unauthorized
-            return
-        user = await self.get_user_from_token(token_str)
-        if not user:
-            logger.warning("WebSocket connection rejected: Invalid or expired token.")
-            await self.close(code=4003)
-            return
-        self.scope['user'] = user
-        
-        self.group_name = 'metrics'
-        await self.channel_layer.group_add(self.group_name, self.channel_name)
-        await self.accept()
-        logger.info(f"WebSocket connected for user: {user.node_name if hasattr(user, 'node_name') else user}")
+    async def connect(self):
+            query_string = self.scope['query_string'].decode()
+            params = dict(param.split('=') for param in query_string.split('&') if '=' in param)
+            token_str = params.get('token')
+            if not token_str:
+                logger.warning("WebSocket connection rejected: Missing auth token.")
+                await self.close(code=4001)  # Custom close code for unauthorized
+                return
+            user = await self.get_user_from_token(token_str)
+            if not user:
+                logger.warning("WebSocket connection rejected: Invalid or expired token.")
+                await self.close(code=4003)
+                return
+            self.scope['user'] = user
+            
+            self.group_name = 'metrics'
+            await self.channel_layer.group_add(self.group_name, self.channel_name)
+            await self.accept()
+            logger.info(f"WebSocket connected for user: {user.node_name if hasattr(user, 'node_name') else user}")
     @database_sync_to_async
     def get_user_from_token(self, token_str):
         try:

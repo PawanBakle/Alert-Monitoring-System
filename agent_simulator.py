@@ -1,5 +1,6 @@
 import argparse
 import os
+from dotenv import load_dotenv
 import random
 import time
 import logging
@@ -9,7 +10,7 @@ from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 from datetime import datetime, timezone
 
-
+load_dotenv()
 """ 
 STATES - 
     server-name, 

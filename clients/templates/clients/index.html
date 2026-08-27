@@ -1,165 +1,272 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Django WebSocket Demo</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server Metrics Dashboard</title>
     <style>
         body { 
             font-family: system-ui, -apple-system, sans-serif; 
-            max-width: 800px; 
+            max-width: 1200px; 
             margin: 0 auto; 
             padding: 20px; 
-            background-color: #f5f5f5;
+            background-color: #f8fafc;
         }
         .dashboard-container {
             background: white;
             border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             overflow: hidden;
+            border: 1px solid #e2e8f0;
         }
         .dh-header {
-            background: #2563eb;
+            background: #0f172a;
             color: white;
             padding: 15px 20px;
             font-weight: 600;
         }
-        #dh-messages { 
-            height: 400px; 
-            overflow-y: auto; 
-            padding: 20px;
-            border-bottom: 1px solid #e5e7eb;
-        }
-.message {
-    padding: 10px;
-    margin: 5px 0;
-    border-radius: 5px;
-    border-left: 5px solid #ccc;
-    background-color: #f9f9f9;
-}
-        .message.own {
-            background: #3b82f6;
-            color: white;
-            margin-left: auto;
-            text-align: right;
-        }
-        .input-container {
-            padding: 20px;
-            display: flex;
-            gap: 10px;
-        }
-        #message-input { 
-            flex: 1;
-            padding: 12px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            font-size: 16px;
-        }
-        #send-button { 
-            padding: 12px 24px;
-            background: #2563eb;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-        }
-        #send-button:hover {
-            background: #1d4ed8;
+        .dh-header h1 {
+            font-size: 1.25rem;
+            margin: 0;
         }
         .status {
             padding: 10px 20px;
-            background: #f3f4f6;
-            color: #6b7280;
+            background: #f1f5f9;
+            color: #475569;
             font-size: 14px;
+            font-weight: 500;
+            border-bottom: 1px solid #e2e8f0;
         }
-        /* Base message style */
-
-
-/* Normal metrics style */
-.normal-message {
-    border-left-color: #3b82f6; /* Blue */
-    background-color: #eff6ff;
-}
-
-/* Critical Alert style */
-.alert-message {
-    border-left-color: #ef4444; /* Red */
-    background-color: #fef2f2;
-    color: #991b1b;
-    font-weight: bold;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}   
+        /* Server Grid Layout */
+        #server-grid { 
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            background-color: #f8fafc;
+            min-height: 400px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        /* Individual Server Card */
+        .server-card {
+            background: white;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 16px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            position: relative;
+        }
+        .server-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #f1f5f9;
+            padding-bottom: 8px;
+        }
+        .server-mac {
+            font-family: monospace;
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 600;
+        }
+        .server-status-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .badge-online {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        .badge-offline {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        .badge-alert {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+        .server-metrics {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 14px;
+            color: #334155;
+        }
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+        }
+        .metric-label {
+            color: #64748b;
+        }
+        .server-card-footer {
+            font-size: 11px;
+            color: #94a3b8;
+            border-top: 1px solid #f1f5f9;
+            padding-top: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
     </style>
 </head>
 <body>
     <div class="dashboard-container">
         <div class="dh-header">
-            <h1 style="margin: 0;">Django WebSocket Dashboard</h1>
+            <h1>Infrastructure Metrics Monitor</h1>
         </div>
-        <div class="status" id="status">Connecting...</div>
-        <div id="dh-messages"></div>
-        <div class="input-container">
-            <input type="text" id="message-input" placeholder="Type your message..." maxlength="500">
-            <button id="send-button" disabled>Send</button>
-        </div>
+        <div class="status" id="status">Connecting to WebSocket...</div>
+        <div id="server-grid"></div>
     </div>
 
-    <script>
-        const dhMessages = document.querySelector('#dh-messages');
-        const messageInput = document.querySelector('#message-input');
-        const sendButton = document.querySelector('#send-button');
-        const status = document.querySelector('#status');
+<script>
+const serverGrid = document.querySelector('#server-grid');
+const status = document.querySelector('#status');
 
-        const dashboardSocket = new WebSocket(
-            'ws://' + window.location.host + '/ws/metrics/'
-        );
+let socket = null;
 
-        dashboardSocket.onopen = function(e) {
-            status.textContent = 'Connected to dashboard server';
-            status.style.backgroundColor = '#d1fae5';
-            status.style.color = '#065f46';
-            // sendButton.disabled = false;
-            // messageInput.focus();
-        };
+// Helper to retrieve the whole tracking object from localStorage
+function getStoredSeqIds() {
+    try {
+        const stored = localStorage.getItem('server_last_seq_ids');
+        return stored ? JSON.parse(stored) : {};
+    } catch (e) {
+        return {};
+    }
+}
 
-        dashboardSocket.onmessage = function(e) {
-            const data = JSON.parse(e.data);
-            const messageElement = document.createElement('div');
-            
-            // Base class for all messages
-            messageElement.classList.add('message');
+// Helper to save a single server's sequence ID
+function saveSeqId(macAddress, seqId) {
+    if (!macAddress || seqId === undefined) return;
+    const trackingMap = getStoredSeqIds();
+    trackingMap[macAddress] = seqId;
+    localStorage.setItem('server_last_seq_ids', JSON.stringify(trackingMap));
+}
 
-            // --- LOGIC: Check type and apply specific styling ---
-            if (data.type === 'alert') {
-                messageElement.classList.add('alert-message'); // Adds red/warning style
-                messageElement.innerHTML = `<strong>⚠️ ${data.message}</strong>`;
-            } 
-            else if (data.type === 'offline') {
-                messageElement.classList.add('alert-message'); // Adds red/warning style
-                messageElement.innerHTML = `${data.message}`;
-            } else {
-                // Default style for 'alarm' or normal metrics
-                messageElement.classList.add('normal-message');
-                messageElement.textContent = `${data.message}: ${JSON.stringify(data.data)}`;
-            }
-            // ----------------------------------------------------
+function connect() {
+    socket = new WebSocket('ws://' + window.location.host + '/ws/metrics/');
 
-            dhMessages.appendChild(messageElement);
-            dhMessages.scrollTop = dhMessages.scrollHeight;
-};     
-        dashboardSocket.onclose = function(e) {
-            status.textContent = 'Disconnected from dashboard server';
-            status.style.backgroundColor = '#fee2e2';
-            status.style.color = '#991b1b';
-            sendButton.disabled = true;
-        };
+    socket.onopen = function(e) {
+        status.textContent = 'Connected (Active monitoring)';
+        status.style.backgroundColor = '#d1fae5';
+        status.style.color = '#065f46';
 
-        dashboardSocket.onerror = function(e) {
-            status.textContent = 'Connection error occurred';
-            status.style.backgroundColor = '#fee2e2';
-            status.style.color = '#991b1b';
-        };
+        // Retrieve the multi-server tracking dictionary
+        const trackingMap = getStoredSeqIds();
+        
+        // Send the dictionary back to the backend for multi-server sync
+        if (Object.keys(trackingMap).length > 0) {
+            socket.send(JSON.stringify({
+                type: 'sync',
+                last_seen: trackingMap
+            }));
+        }
+    };
 
+    socket.onmessage = function(e) {
+        const rawMessage = JSON.parse(e.data);
+        const messageType = rawMessage.type;
 
-    </script>
+        if (messageType === 'recovery_data') {
+            const missedMessages = rawMessage.messages || [];
+            missedMessages.forEach(item => {
+                updateServerCard(item);
+                const itemData = item.data || item;
+                if (itemData.server_mac_address && itemData.seq_id !== undefined) {
+                    saveSeqId(itemData.server_mac_address, itemData.seq_id);
+                }
+            });
+            return;
+        }
+
+        const data = rawMessage.data || rawMessage;
+        if (data.server_mac_address && data.seq_id !== undefined) {
+            saveSeqId(data.server_mac_address, data.seq_id);
+        }
+        updateServerCard(rawMessage);
+    };
+
+    socket.onclose = function(e) {
+        status.textContent = 'Disconnected from server. Reconnecting...';
+        status.style.backgroundColor = '#fee2e2';
+        status.style.color = '#991b1b';
+        setTimeout(connect, 3000);
+    };
+
+    socket.onerror = function(e) {
+        status.textContent = 'WebSocket connection error';
+        status.style.backgroundColor = '#fee2e2';
+        status.style.color = '#991b1b';
+    };
+}
+
+// Updates or creates a unique card per server based on mac address
+function updateServerCard(rawMessage) {
+    const data = rawMessage.data || rawMessage;
+    const macAddress = data.server_mac_address;
+    
+    if (!macAddress) return;
+
+    const cardId = `server-${macAddress.replace(/[:\-]/g, '')}`;
+    let cardElement = document.getElementById(cardId);
+
+    const timestamp = data.time || data.timestamp ? new Date(data.time || data.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+    const serverName = data.server_name || data.server_node_name || 'Unknown Server';
+    const cpuUsage = data.cpu !== undefined ? data.cpu : (data.last_known_cpu !== undefined ? data.last_known_cpu : 'N/A');
+    const serverOS = data.server_os || 'OS N/A';
+    const seqId = data.seq_id ? `#${data.seq_id}` : '';
+    const serverStatus = data.server_status || 'ONLINE';
+    const messageType = rawMessage.type || data.type;
+
+    let badgeClass = 'badge-online';
+    let statusText = serverStatus;
+    if (messageType === 'offline' || serverStatus === 'OFFLINE' || serverStatus === 'offline') {
+        badgeClass = 'badge-offline';
+        statusText = 'OFFLINE';
+    } else if (messageType === 'alert' || (typeof cpuUsage === 'number' && cpuUsage > 85)) {
+        badgeClass = 'badge-alert';
+        statusText = 'HIGH CPU';
+    }
+
+    if (!cardElement) {
+        cardElement = document.createElement('div');
+        cardElement.id = cardId;
+        cardElement.classList.add('server-card');
+        serverGrid.appendChild(cardElement);
+    }
+
+    cardElement.innerHTML = `
+        <div class="server-card-header">
+            <div>
+                <strong>${serverName}</strong><br>
+                <span class="server-mac">${macAddress}</span>
+            </div>
+            <span class="server-status-badge ${badgeClass}">${statusText}</span>
+        </div>
+        <div class="server-metrics">
+            <div class="metric-row">
+                <span class="metric-label">OS Version:</span>
+                <span>${serverOS}</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">CPU Usage:</span>
+                <strong>${cpuUsage}%</strong>
+            </div>
+        </div>
+        <div class="server-card-footer">
+            <span>Seq: ${seqId}</span>
+            <span>Last Seen: ${timestamp}</span>
+        </div>
+    `;
+}
+
+connect();
+</script>
 </body>
 </html>

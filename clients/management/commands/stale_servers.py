@@ -19,7 +19,7 @@ class Command(BaseCommand):
 
         now_local = timezone.localtime(timezone.now())
         threshold_time = now_local - timedelta(seconds=10)
-        active_nodes = Node.objects.exclude(status='Offline')
+        active_nodes = Node.objects.exclude(status=self.STATUS_OFFLINE)
         # channel_layer = get_channel_layer()
         stale_count = 0
 
@@ -43,7 +43,7 @@ class Command(BaseCommand):
             # Final evaluation check
             if latest_metric.time_stamp < threshold_time:
                 stale_count += 1
-                node.status = 'Offline'
+                node.status = self.STATUS_OFFLINE
                 node.save()
                 
                 self.stdout.write(self.style.WARNING(f"!! MARKING OFFLINE -> {node.node_name} !!"))
@@ -76,14 +76,7 @@ class Command(BaseCommand):
                             'content': data
                         }
                     )
-                    
-                    async_to_sync(layer.group_send)(
-                        'metrics', 
-                        {
-                            'type': 'events_offline', 
-                            'content': data
-                        }
-                    )
+                
                     self.stdout.write(f"-> Sent WebSocket frame for {node.node_name}")
                 except Exception as e:
                     self.stderr.write(f"-> Failed to send: {e}")
